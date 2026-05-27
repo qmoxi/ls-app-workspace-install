@@ -29,7 +29,9 @@ INSTALL_SCRIPT_URL="https://raw.githubusercontent.com/qmoxi/ls-app-workspace-ins
 
 REPO_DIR="${REPO_DIR:-/home/build/ls-app}"
 LS_INSTALL_BRANCH="${LS_INSTALL_BRANCH:-main}"
-LS_REPO_SSH="git@github.com:qmoxi/ls-app.git"
+# Dedicated SSH host alias — avoids other ~/.ssh/config github.com keys winning.
+GITHUB_SSH_HOST="github.com-ls-app"
+LS_REPO_SSH="git@${GITHUB_SSH_HOST}:qmoxi/ls-app.git"
 DEPLOY_KEY="${HOME}/.ssh/id_ed25519_ls_app_deploy"
 DEPLOY_PUB="${DEPLOY_KEY}.pub"
 GITHUB_KEYS_URL="https://github.com/qmoxi/ls-app/settings/keys"
@@ -81,9 +83,49 @@ ensure_interactive_shell() {
 		bash -i "${script_tmp}" "$@" <"${user_tty}" >"${user_tty}" 2>&1
 }
 
+configure_ssh_for_ls_app() {
+	local cfg="${HOME}/.ssh/config"
+	mkdir -p "${HOME}/.ssh"
+	touch "${cfg}"
+	chmod 600 "${cfg}"
+	if grep -q "Host ${GITHUB_SSH_HOST}" "${cfg}" 2>/dev/null; then
+		return 0
+	fi
+	cat >>"${cfg}" <<EOF
+
+Host ${GITHUB_SSH_HOST}
+  HostName github.com
+  User git
+  IdentityFile ${DEPLOY_KEY}
+  IdentitiesOnly yes
+EOF
+}
+
+github_ssh_probe() {
+	ssh -o BatchMode=yes -o ConnectTimeout=15 -T "git@${GITHUB_SSH_HOST}" 2>&1 || true
+}
+
 github_ssh_ok() {
-	ssh -i "${DEPLOY_KEY}" -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=15 \
-		-T git@github.com 2>&1 | grep -qiE 'successfully authenticated|Hi qmoxi'
+	local out
+	out="$(github_ssh_probe)"
+	if echo "${out}" | grep -qiE 'successfully authenticated'; then
+		return 0
+	fi
+	if echo "${out}" | grep -qiE 'Hi [A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+!'; then
+		return 0
+	fi
+	return 1
+}
+
+explain_github_ssh_failure() {
+	local out
+	out="$(github_ssh_probe)"
+	warn "    ssh test: ${out}"
+	warn "    deploy key file: ${DEPLOY_KEY}"
+	warn "    fingerprint: $(ssh-keygen -lf "${DEPLOY_PUB}" 2>/dev/null | awk '{print $2}')"
+	warn "    Add the pubkey printed above at ${GITHUB_KEYS_URL}"
+	warn "    Repo must be qmoxi/ls-app (not ls-app-workspace-install). Enable Allow write access."
+	warn "    A pubkey can only be one repo's deploy key on GitHub — if 'already in use', add THIS new key, not an old one."
 }
 
 prompt_user() {
@@ -120,7 +162,8 @@ wait_for_github_deploy_key() {
 		die "Deploy key not on GitHub yet (or write access disabled). Add the key above, or unset LS_SKIP_DEPLOY_KEY_PROMPT."
 	fi
 
-	log "    Waiting until this key is saved on GitHub (press Enter after each attempt)…"
+	log "    Waiting until this key is saved on GitHub (press Enter to re-check)…"
+	explain_github_ssh_failure
 
 	while ! github_ssh_ok; do
 		if [[ -t 0 ]]; then
@@ -131,7 +174,7 @@ wait_for_github_deploy_key() {
 			die "No terminal for prompts. Re-run: curl -fsSL ${INSTALL_SCRIPT_URL} -o install.sh && bash install.sh"
 		fi
 		if ! github_ssh_ok; then
-			warn "    GitHub SSH not working yet — add the key at ${GITHUB_KEYS_URL}"
+			explain_github_ssh_failure
 		fi
 	done
 	log "    GitHub SSH OK"
@@ -183,17 +226,7 @@ fi
 chmod 600 "${DEPLOY_KEY}"
 chmod 644 "${DEPLOY_PUB}"
 
-SSH_CONFIG="${HOME}/.ssh/config"
-if ! grep -q 'Host github.com' "${SSH_CONFIG}" 2>/dev/null; then
-	mkdir -p "${HOME}/.ssh"
-	{
-		echo ""
-		echo "Host github.com"
-		echo "  IdentityFile ${DEPLOY_KEY}"
-		echo "  IdentitiesOnly yes"
-	} >> "${SSH_CONFIG}"
-	chmod 600 "${SSH_CONFIG}"
-fi
+configure_ssh_for_ls_app
 
 if ! grep -q 'github.com' "${HOME}/.ssh/known_hosts" 2>/dev/null; then
 	ssh-keyscan -H github.com >> "${HOME}/.ssh/known_hosts" 2>/dev/null || true
