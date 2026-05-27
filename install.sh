@@ -38,22 +38,47 @@ log() { echo -e "\033[1;36m[ls-install]\033[0m $*"; }
 warn() { echo -e "\033[1;33m[ls-install]\033[0m $*" >&2; }
 die() { echo -e "\033[1;31m[ls-install]\033[0m $*" >&2; exit 1; }
 
-# curl | bash feeds the script on stdin (not a TTY). Re-run attached to the desktop terminal.
+# GNOME Terminal → /dev/pts/N; use `tty` first, then /dev/tty.
+resolve_user_tty() {
+	local t=""
+	t=$(tty 2>/dev/null || true)
+	if [[ -n "${t}" && -r "${t}" ]]; then
+		echo "${t}"
+		return 0
+	fi
+	if [[ -r /dev/tty ]]; then
+		echo /dev/tty
+		return 0
+	fi
+	return 1
+}
+
+# curl | bash: script is on stdin, not the terminal. Re-download and exec bash -i on a script file.
 ensure_interactive_shell() {
 	if [[ -t 0 ]]; then
 		return 0
 	fi
 	if [[ -n "${LS_INSTALL_REEXEC:-}" ]]; then
-		die "Still non-interactive after re-exec. Use: curl -fsSL ${INSTALL_SCRIPT_URL} -o install.sh && bash install.sh"
+		die "Still non-interactive after re-exec (-t 0 false). Use:
+  curl -fsSL ${INSTALL_SCRIPT_URL} -o install.sh && bash install.sh"
 	fi
-	if [[ -r /dev/tty ]]; then
-		echo "[ls-install] Attaching to your terminal for interactive prompts…" >/dev/tty
-		export LS_INSTALL_REEXEC=1
-		exec </dev/tty >/dev/tty 2>/dev/tty bash -i -c "$(curl -fsSL "${INSTALL_SCRIPT_URL}")" "$@"
-	fi
-	die "Interactive shell required (e.g. GNOME Terminal on the WorkSpace).
+
+	local user_tty script_tmp
+	user_tty=$(resolve_user_tty) || die "No terminal device (run from GNOME Terminal on the desktop, not a non-TTY SSH session).
 
   curl -fsSL ${INSTALL_SCRIPT_URL} -o install.sh && bash install.sh"
+
+	script_tmp="$(mktemp /tmp/ls-install.XXXXXX.sh)"
+	curl -fsSL "${INSTALL_SCRIPT_URL}" -o "${script_tmp}"
+	chmod +x "${script_tmp}"
+
+	echo "[ls-install] Attaching to ${user_tty} for interactive prompts…" >"${user_tty}"
+
+	export LS_INSTALL_REEXEC=1
+	export REPO_DIR LS_INSTALL_BRANCH LS_SKIP_DEPLOY_KEY_PROMPT
+	exec env LS_INSTALL_REEXEC=1 REPO_DIR="${REPO_DIR}" LS_INSTALL_BRANCH="${LS_INSTALL_BRANCH}" \
+		LS_SKIP_DEPLOY_KEY_PROMPT="${LS_SKIP_DEPLOY_KEY_PROMPT:-}" \
+		bash -i "${script_tmp}" "$@" <"${user_tty}" >"${user_tty}" 2>&1
 }
 
 github_ssh_ok() {
@@ -62,19 +87,23 @@ github_ssh_ok() {
 }
 
 prompt_user() {
-	local msg="$1"
+	local msg="$1" user_tty=""
+	user_tty=$(resolve_user_tty 2>/dev/null || true)
 	if [[ -t 0 ]]; then
 		read -rp "${msg}"
 		return 0
 	fi
-	if [[ -r /dev/tty ]]; then
-		read -rp "${msg}" </dev/tty
+	if [[ -n "${user_tty}" ]]; then
+		read -rp "${msg}" <"${user_tty}"
 		return 0
 	fi
 	return 1
 }
 
 wait_for_github_deploy_key() {
+	local user_tty=""
+	user_tty=$(resolve_user_tty 2>/dev/null || true)
+
 	echo ""
 	echo "  Public key (paste into Deploy keys — Allow write access):"
 	echo "  ${GITHUB_KEYS_URL}"
@@ -94,8 +123,13 @@ wait_for_github_deploy_key() {
 	log "    Waiting until this key is saved on GitHub (press Enter after each attempt)…"
 
 	while ! github_ssh_ok; do
-		prompt_user "Press Enter after the deploy key is saved on GitHub (Allow write access)... " \
-			|| die "Interactive terminal required for prompts."
+		if [[ -t 0 ]]; then
+			read -rp "Press Enter after the deploy key is saved on GitHub (Allow write access)... "
+		elif [[ -n "${user_tty}" ]]; then
+			read -rp "Press Enter after the deploy key is saved on GitHub (Allow write access)... " <"${user_tty}"
+		else
+			die "No terminal for prompts. Re-run: curl -fsSL ${INSTALL_SCRIPT_URL} -o install.sh && bash install.sh"
+		fi
 		if ! github_ssh_ok; then
 			warn "    GitHub SSH not working yet — add the key at ${GITHUB_KEYS_URL}"
 		fi
@@ -112,8 +146,14 @@ Environment:
   LS_INSTALL_BRANCH=${LS_INSTALL_BRANCH}
   LS_SKIP_DEPLOY_KEY_PROMPT=1   skip "Press Enter" after adding deploy key
 
-One-liner (from GNOME Terminal — re-attaches to /dev/tty when piped):
+One-liner (GNOME Terminal — auto re-attaches when piped):
   curl -fsSL ${INSTALL_SCRIPT_URL} | bash
+
+Alternative (always interactive):
+  bash -i <(curl -fsSL ${INSTALL_SCRIPT_URL})
+
+Or download first:
+  curl -fsSL ${INSTALL_SCRIPT_URL} -o install.sh && bash install.sh
 EOF
 }
 
