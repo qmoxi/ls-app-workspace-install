@@ -17,7 +17,7 @@
 # Env:
 #   REPO_DIR          default /home/build/ls-app
 #   LS_INSTALL_BRANCH default main
-#   LS_SKIP_DEPLOY_KEY_PROMPT=1  re-run without pause (key already on GitHub)
+#   LS_SKIP_DEPLOY_KEY_PROMPT=1  skip wait loop (fail immediately if key not on GitHub yet)
 
 set -euo pipefail
 
@@ -31,6 +31,58 @@ GITHUB_KEYS_URL="https://github.com/qmoxi/ls-app/settings/keys"
 log() { echo -e "\033[1;36m[ls-install]\033[0m $*"; }
 warn() { echo -e "\033[1;33m[ls-install]\033[0m $*" >&2; }
 die() { echo -e "\033[1;31m[ls-install]\033[0m $*" >&2; exit 1; }
+
+github_ssh_ok() {
+	ssh -i "${DEPLOY_KEY}" -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=15 \
+		-T git@github.com 2>&1 | grep -qiE 'successfully authenticated|Hi qmoxi'
+}
+
+# curl | bash leaves stdin non-interactive; read from /dev/tty when the user is on a real desktop.
+prompt_user() {
+	local msg="$1"
+	if [[ -t 0 ]]; then
+		read -rp "${msg}"
+		return 0
+	fi
+	if [[ -r /dev/tty ]]; then
+		read -rp "${msg}" </dev/tty
+		return 0
+	fi
+	return 1
+}
+
+wait_for_github_deploy_key() {
+	echo ""
+	echo "  Public key (paste into Deploy keys — Allow write access):"
+	echo "  ${GITHUB_KEYS_URL}"
+	echo ""
+	cat "${DEPLOY_PUB}"
+	echo ""
+
+	if github_ssh_ok; then
+		log "    GitHub deploy key already works"
+		return 0
+	fi
+
+	if [[ "${LS_SKIP_DEPLOY_KEY_PROMPT:-}" == "1" ]]; then
+		die "Deploy key not on GitHub yet (or write access disabled). Add the key above, or unset LS_SKIP_DEPLOY_KEY_PROMPT."
+	fi
+
+	log "    Waiting until this key is saved on GitHub…"
+	log "    (curl | bash is fine — no need to re-run the whole script)"
+
+	if prompt_user "Press Enter after you have saved the deploy key on GitHub... "; then
+		:
+	else
+		warn "    No TTY for Enter — polling GitHub every 5s until the deploy key works"
+	fi
+
+	while ! github_ssh_ok; do
+		echo "  …still waiting — add the key at ${GITHUB_KEYS_URL} (checking again in 5s)"
+		sleep 5
+	done
+	log "    GitHub SSH OK"
+}
 
 usage() {
 	cat <<EOF
@@ -89,26 +141,7 @@ fi
 
 # ------------------------------------------------------------------------------
 log "3/5 Add deploy key on GitHub (allow write access)"
-echo ""
-echo "  Public key (paste into Deploy keys):"
-echo "  ${GITHUB_KEYS_URL}"
-echo ""
-cat "${DEPLOY_PUB}"
-echo ""
-
-if [[ "${LS_SKIP_DEPLOY_KEY_PROMPT:-}" != "1" ]]; then
-	if [[ -t 0 ]]; then
-		read -rp "Press Enter after the deploy key is added on GitHub (with write access)... "
-	else
-		warn "Non-interactive shell — set LS_SKIP_DEPLOY_KEY_PROMPT=1 if the key is already on GitHub"
-		die "Cannot continue without deploy key on GitHub"
-	fi
-fi
-
-# Quick SSH check (may fail until key is registered)
-if ! ssh -o BatchMode=yes -T git@github.com 2>&1 | grep -qiE 'successfully authenticated|Hi qmoxi'; then
-	warn "ssh git@github.com did not confirm auth yet — if clone fails, fix the deploy key and re-run"
-fi
+wait_for_github_deploy_key
 
 # ------------------------------------------------------------------------------
 log "4/5 Clone ls-app → ${REPO_DIR}"
