@@ -8,7 +8,7 @@
 #     https://raw.githubusercontent.com/qmoxi/ls-app-workspace-install/main/install.sh | bash
 #
 # What this script does:
-#   1. apt: git, openssh-client, ca-certificates
+#   1. apt: git, openssh-client, ca-certificates + global pull.rebase / rebase.autoStash
 #   2. SSH deploy key (generate if missing)
 #   3. Pause — you paste the public key into GitHub (qmoxi/ls-app deploy keys, allow write)
 #   4. git clone git@github.com:qmoxi/ls-app.git
@@ -39,6 +39,12 @@ GITHUB_KEYS_URL="https://github.com/qmoxi/ls-app/settings/keys"
 log() { echo -e "\033[1;36m[ls-install]\033[0m $*"; }
 warn() { echo -e "\033[1;33m[ls-install]\033[0m $*" >&2; }
 die() { echo -e "\033[1;31m[ls-install]\033[0m $*" >&2; exit 1; }
+
+configure_git_pull_policy() {
+	command -v git >/dev/null 2>&1 || return 0
+	git config --global pull.rebase true
+	git config --global rebase.autoStash true
+}
 
 # GNOME Terminal → /dev/pts/N; use `tty` first, then /dev/tty.
 resolve_user_tty() {
@@ -215,6 +221,8 @@ log "1/5 apt prerequisites"
 export DEBIAN_FRONTEND=noninteractive
 sudo apt-get update -qq
 sudo apt-get install -y -qq git openssh-client ca-certificates
+configure_git_pull_policy
+log "    git pull: rebase + autoStash (global)"
 
 # ------------------------------------------------------------------------------
 log "2/5 SSH deploy key"
@@ -251,7 +259,7 @@ else
 	log "    repo exists — fetching"
 	git -C "${REPO_DIR}" fetch --all --tags --quiet
 	if [[ -z "$(git -C "${REPO_DIR}" status --porcelain)" ]]; then
-		git -C "${REPO_DIR}" pull --rebase --quiet || true
+		git -C "${REPO_DIR}" pull --rebase --autostash --quiet || true
 	fi
 fi
 
