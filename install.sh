@@ -270,4 +270,8 @@ BOOTSTRAP="${REPO_DIR}/infra/workspaces/bootstrap-workspace.sh"
 log "5/5 Run bootstrap-workspace.sh"
 export REPO_DIR
 export REPO_URL="${LS_REPO_SSH}"
+# Mirror WorkSpace paths (ls.tgz + tests/.env scp) — under /home/build, not /opt/build.
+export LS_BUILD_DIR="${LS_BUILD_DIR:-/home/build}"
+export LS_MIRROR_REMOTE_TGZ="${LS_MIRROR_REMOTE_TGZ:-${LS_BUILD_DIR}/ls.tgz}"
+export LS_MIRROR_REPO="${LS_MIRROR_REPO:-${LS_BUILD_DIR}/ls-app}"
 exec bash "${BOOTSTRAP}"

@@ -32,16 +32,12 @@ bash install.sh
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `REPO_DIR` | `/home/build/ls-app` | Clone path (use `/opt/build/ls-app` on migrate WorkSpaces) |
+| `REPO_DIR` | `/home/build/ls-app` | Clone path |
+| `LS_BUILD_DIR` | `/home/build` | Build root; mirror `ls.tgz` at `${LS_BUILD_DIR}/ls.tgz` |
+| `LS_MIRROR_REMOTE_TGZ` | `${LS_BUILD_DIR}/ls.tgz` | Remote path on mirror WorkSpace for legacy PHP scp |
+| `LS_MIRROR_REPO` | `/home/build/ls-app` | Remote path on mirror for `tests/.env` scp |
 | `LS_INSTALL_BRANCH` | `main` | Branch to clone |
 | `LS_SKIP_DEPLOY_KEY_PROMPT` | unset | Set `1` to skip Enter prompt if key already registered |
-
-Example:
-
-```bash
-REPO_DIR=/opt/build/ls-app curl -fsSL --proto '=https' --tlsv1.2 \
-  https://raw.githubusercontent.com/qmoxi/ls-app-workspace-install/main/install.sh | bash
-```
 
 ## Re-run full bootstrap (repo already cloned)
 
