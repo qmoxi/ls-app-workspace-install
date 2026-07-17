@@ -263,7 +263,7 @@ else
 	fi
 fi
 
-BOOTSTRAP="${REPO_DIR}/infra/workspaces/bootstrap-workspace.sh"
+BOOTSTRAP="${REPO_DIR}/scripts/workspaces/bootstrap-workspace.sh"
 [[ -x "${BOOTSTRAP}" || -f "${BOOTSTRAP}" ]] || die "Missing ${BOOTSTRAP} after clone"
 
 # ------------------------------------------------------------------------------

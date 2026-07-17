@@ -3,7 +3,7 @@
 # Full migration setup — tools + golden DB. Run AFTER install.sh.
 #
 #   aws sso login --profile ls-admin
-#   bash infra/workspaces/ls-workspace-install/install-migration.sh
+#   bash scripts/workspaces/ls-workspace-install/install-migration.sh
 
 set -euo pipefail
 

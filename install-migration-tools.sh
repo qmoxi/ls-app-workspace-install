@@ -4,7 +4,7 @@
 # Canonical copy lives here; published to qmoxi/ls-app-workspace-install.
 #
 # From ls-app (after git pull):
-#   bash infra/workspaces/ls-workspace-install/install-migration-tools.sh
+#   bash scripts/workspaces/ls-workspace-install/install-migration-tools.sh
 #
 # Public one-liner (after workspace-install repo is updated):
 #   curl -fsSL --proto '=https' --tlsv1.2 \
@@ -14,9 +14,9 @@ set -euo pipefail
 
 REPO_DIR="${REPO_DIR:-/home/build/ls-app}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# When this file lives under ls-app/infra/workspaces/ls-workspace-install/, prefer local impl.
+# When this file lives under ls-app/scripts/workspaces/ls-workspace-install/, prefer local impl.
 LOCAL_REPO="$(cd "${SCRIPT_DIR}/../.." && pwd)"
-if [[ -f "${LOCAL_REPO}/infra/workspaces/setup-migration-workspace.sh" ]]; then
+if [[ -f "${LOCAL_REPO}/scripts/workspaces/setup-migration-workspace.sh" ]]; then
 	REPO_DIR="${LOCAL_REPO}"
 fi
 
@@ -34,7 +34,7 @@ if [[ -z "$(git -C "${REPO_DIR}" status --porcelain)" ]]; then
 	git -C "${REPO_DIR}" pull --rebase --autostash --quiet || true
 fi
 
-SETUP="${REPO_DIR}/infra/workspaces/setup-migration-workspace.sh"
+SETUP="${REPO_DIR}/scripts/workspaces/setup-migration-workspace.sh"
 [[ -f "${SETUP}" ]] || die "Missing ${SETUP} — git pull ls-app main"
 
 export REPO_DIR
