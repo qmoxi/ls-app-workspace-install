@@ -37,13 +37,38 @@ log "    ls-app @ $(git -C "${REPO_DIR}" rev-parse --short HEAD)"
 SETUP="${REPO_DIR}/scripts/workspaces/setup-migration-workspace.sh"
 [[ -f "${SETUP}" ]] || die "Missing ${SETUP}"
 
-log "3/4 prerequisites (AWS SSO + docker)"
+log "3/4 prerequisites (AWS SSO + docker group)"
 if ! aws sts get-caller-identity --profile "${AWS_PROFILE}" >/dev/null 2>&1; then
 	die "AWS SSO not active for ${AWS_PROFILE}. Run: aws sso login --profile ${AWS_PROFILE}"
 fi
-if ! docker info >/dev/null 2>&1 && ! sg docker -c 'docker info' >/dev/null 2>&1; then
-	die "docker socket not accessible in this session.
-  If Docker was just installed, sign out of the WorkSpace and back in (or: newgrp docker), then re-run this script."
+
+# Ensure docker group uses the BARE AD login (ls-admin5), never user@domain.
+# install-golden-db used to require a working docker socket *before* setup-golden-zfs
+# could add the user — that left fresh boxes stuck with no docker group membership.
+BARE_USER="$(id -un)"
+BARE_USER="${BARE_USER%%@*}"
+if ! getent group docker >/dev/null 2>&1; then
+	# Docker not installed yet — setup-golden-zfs.sh will install it + add the user.
+	log "    docker not installed yet — setup will install CE + add ${BARE_USER}"
+else
+	while IFS= read -r member; do
+		[[ -z "${member}" ]] && continue
+		if [[ "${member}" == *"@"* ]]; then
+			warn "    removing domain-qualified docker member: ${member}"
+			sudo gpasswd -d "${member}" docker >/dev/null 2>&1 || true
+		fi
+	done < <(getent group docker | awk -F: '{print $4}' | tr ',' '\n')
+	if ! getent group docker | awk -F: '{print $4}' | tr ',' '\n' | grep -qx "${BARE_USER}"; then
+		log "    adding ${BARE_USER} (bare name) to docker group"
+		sudo gpasswd -a "${BARE_USER}" docker
+	fi
+	sudo systemctl enable --now docker >/dev/null 2>&1 || true
+	if ! docker info >/dev/null 2>&1 && ! sg docker -c 'docker info' >/dev/null 2>&1; then
+		die "docker group updated for ${BARE_USER}, but this session cannot use the socket yet.
+  Sign out of the WorkSpace and back in (or reboot), then re-run:
+    bash ${REPO_DIR}/scripts/workspaces/ls-workspace-install/install-golden-db.sh
+  Verify after login:  groups   # must include docker (not user@domain)"
+	fi
 fi
 
 log "4/4 golden DB (Docker + ZFS + base@T seed — first run may take 10–30 min)"
